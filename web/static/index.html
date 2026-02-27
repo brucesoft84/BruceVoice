@@ -130,6 +130,14 @@
            class="text-sm text-gray-800 leading-relaxed bg-slate-50 rounded-xl p-4 border border-gray-100 whitespace-pre-wrap"></p>
       </div>
 
+      <!-- Conversation Timeline -->
+      <div id="conv-card" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+        <h2 class="font-semibold text-gray-700 mb-5 flex items-center gap-2">
+          <span class="text-indigo-500">💬</span> Conversation Timeline
+        </h2>
+        <div id="conversation-timeline" class="space-y-3"></div>
+      </div>
+
       <!-- Pitch -->
       <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
         <h2 class="font-semibold text-gray-700 mb-5 flex items-center gap-2">
@@ -143,7 +151,7 @@
       <!-- Diarization -->
       <div id="diar-card" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
         <h2 class="font-semibold text-gray-700 mb-5 flex items-center gap-2">
-          <span class="text-indigo-500">👥</span> Speaker Diarization
+          <span class="text-indigo-500">👥</span> Speaker Summary
         </h2>
         <div id="diar-content"></div>
       </div>
@@ -358,13 +366,93 @@
       // Pitch chart
       document.getElementById('pitch-chart').src = `/pitch/${jobId}?t=${Date.now()}`;
 
-      // Diarization
+      // Conversation timeline
+      renderConversation(data.conversation);
+
+      // Diarization summary
       renderDiarization(data.speakers, data.duration);
+
+      // Hide conv-card if no conversation data
+      document.getElementById('conv-card').classList.toggle('hidden', !data.conversation || data.conversation.length === 0);
 
       document.getElementById('results-root').classList.remove('hidden');
       document.getElementById('results-root').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
+    // ── Conversation timeline ──────────────────────────────────────────────────
+    function renderConversation(conversation) {
+      const el = document.getElementById('conversation-timeline');
+      if (!conversation || conversation.length === 0) {
+        el.innerHTML = '<p class="text-sm text-gray-400 italic">No conversation data.</p>';
+        return;
+      }
+
+      const fmtTime = t => {
+        const m = Math.floor(t / 60);
+        const s = Math.floor(t % 60).toString().padStart(2, '0');
+        const ms = Math.round((t % 1) * 10);
+        return `${m}:${s}.${ms}`;
+      };
+
+      const ROLE_STYLE = {
+        agent: {
+          wrap:   'items-start',
+          bubble: 'bg-indigo-50 border-indigo-100 rounded-tl-sm',
+          label:  '🎧 Agent',
+          labelCls: 'text-indigo-700 bg-indigo-100',
+        },
+        customer: {
+          wrap:   'items-end',
+          bubble: 'bg-amber-50 border-amber-100 rounded-tr-sm',
+          label:  '👤 Customer',
+          labelCls: 'text-amber-700 bg-amber-100',
+        },
+        unknown: {
+          wrap:   'items-start',
+          bubble: 'bg-gray-50 border-gray-100 rounded-tl-sm',
+          label:  '',
+          labelCls: '',
+        },
+      };
+
+      el.innerHTML = conversation.map(utt => {
+        const rs = ROLE_STYLE[utt.role] || ROLE_STYLE.unknown;
+        const timeStr = `${fmtTime(utt.start)} – ${fmtTime(utt.end)}`;
+        const isCustomer = utt.role === 'customer';
+
+        const roleBadge = rs.label
+          ? `<span class="text-xs px-2 py-0.5 rounded-full font-semibold ${rs.labelCls}">${rs.label}</span>`
+          : '';
+
+        const highToneBadge = utt.high_tone
+          ? `<span class="text-xs px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600 font-medium" title="Elevated pitch detected">↑ ${utt.avg_pitch_hz} Hz</span>`
+          : '';
+
+        const metaRow = isCustomer
+          ? `<div class="flex items-center justify-end gap-2 mb-1">
+               ${highToneBadge}
+               <span class="text-xs text-gray-400">${timeStr}</span>
+               ${roleBadge}
+             </div>`
+          : `<div class="flex items-center gap-2 mb-1">
+               ${roleBadge}
+               <span class="text-xs text-gray-400">${timeStr}</span>
+               ${highToneBadge}
+             </div>`;
+
+        const ringCls = utt.high_tone ? 'ring-1 ring-orange-200' : '';
+
+        return `
+          <div class="flex flex-col ${rs.wrap}">
+            ${metaRow}
+            <div class="max-w-[82%] rounded-2xl ${rs.bubble} border px-4 py-2.5 ${ringCls}">
+              <p class="text-sm text-gray-800 leading-relaxed">${utt.text}</p>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    // ── Speaker summary (diarization card) ────────────────────────────────────
     function renderDiarization(speakers, duration) {
       const el = document.getElementById('diar-content');
       if (!speakers || speakers.length === 0) {
@@ -372,10 +460,13 @@
         return;
       }
 
-      // Speaker index map
+      const ROLE_BADGE = {
+        agent:    '<span class="text-xs px-2 py-0.5 rounded-full font-semibold text-indigo-700 bg-indigo-100">🎧 Agent</span>',
+        customer: '<span class="text-xs px-2 py-0.5 rounded-full font-semibold text-amber-700 bg-amber-100">👤 Customer</span>',
+      };
+
       const spkIdx = Object.fromEntries(speakers.map((s, i) => [s.id, i]));
 
-      // All segments flat + sorted
       const allSegs = speakers.flatMap(s => s.segments.map(sg => ({ ...sg, speaker: s.id })))
                                .sort((a, b) => a.start - b.start);
 
@@ -384,9 +475,10 @@
         <div class="flex items-center gap-1.5">
           <div class="w-3 h-3 rounded-full" style="background:${SPEAKER_COLORS[i % SPEAKER_COLORS.length]}"></div>
           <span class="text-xs font-medium text-gray-600">${s.id}</span>
+          ${ROLE_BADGE[s.role] || ''}
         </div>`).join('');
 
-      // Timeline segments
+      // Timeline bar
       const bars = allSegs.map(seg => {
         const left  = (seg.start / duration * 100).toFixed(3);
         const width = Math.max(0.4, ((seg.end - seg.start) / duration * 100)).toFixed(3);
@@ -396,13 +488,12 @@
                      class="absolute inset-y-0 rounded-sm opacity-85 hover:opacity-100 transition-opacity"></div>`;
       }).join('');
 
-      // Time ticks (5 evenly spaced)
       const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => {
         const t = (duration * f).toFixed(1);
         return `<span style="left:${(f*100).toFixed(1)}%" class="absolute -translate-x-1/2 text-xs text-gray-400">${t}s</span>`;
       }).join('');
 
-      // Per-speaker cards
+      // Per-speaker summary cards
       const cards = speakers.map((spk, i) => {
         const color  = SPEAKER_COLORS[i % SPEAKER_COLORS.length];
         const bg     = SPEAKER_BG[i % SPEAKER_BG.length];
@@ -410,16 +501,18 @@
         const segTags = spk.segments.map(s =>
           `<span class="text-xs text-gray-400 bg-white/70 rounded px-1.5 py-0.5">${s.start.toFixed(1)}–${s.end.toFixed(1)}s</span>`
         ).join(' ');
+        const roleBadge = ROLE_BADGE[spk.role] || '';
         return `
           <div class="rounded-xl border p-4" style="background:${bg};border-color:${border}">
             <div class="flex flex-wrap items-center gap-2 mb-2.5">
               <div class="w-3 h-3 rounded-full flex-shrink-0" style="background:${color}"></div>
               <span class="font-bold text-sm" style="color:${color}">${spk.id}</span>
+              ${roleBadge}
               <span class="text-xs text-gray-400">${spk.segments.length} segment${spk.segments.length !== 1 ? 's' : ''}</span>
               <div class="ml-auto flex flex-wrap gap-1">${segTags}</div>
             </div>
             <p class="text-sm text-gray-700 leading-relaxed">
-              ${spk.transcript || '<em class="text-gray-400">No transcript aligned to this speaker.</em>'}
+              ${spk.transcript || '<em class="text-gray-400">No transcript available.</em>'}
             </p>
           </div>`;
       }).join('');

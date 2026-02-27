@@ -90,11 +90,69 @@ def print_results(
     print()
 
 
+def build_conversation_timeline(
+    aligned_transcripts: dict,
+    pitch_stats: dict,
+    roles: dict,
+) -> list:
+    """Build a chronological conversation timeline with pitch annotation.
+
+    Each entry is one contiguous speaker turn (utterance) with its start/end
+    time, role label, average F0, and a high-tone flag.
+
+    An utterance is flagged **high_tone** when its average pitch exceeds
+    115 % of the recording's overall mean F0 — a speaker-relative threshold
+    that works equally well for male and female voices.
+
+    Args:
+        aligned_transcripts: Output of align_transcript_to_speakers() —
+            {speaker_id: [{text, start, end}, ...]} with precise timestamps.
+        pitch_stats: Output of analyze_pitch() (must still contain f0_times /
+            f0_values before they are stripped).
+        roles: Output of identify_speaker_roles() — {speaker_id: role_str}.
+
+    Returns:
+        List of utterance dicts sorted by start time:
+        [{speaker, role, start, end, text, avg_pitch_hz, high_tone}, ...]
+    """
+    from .pitch import avg_pitch_for_window
+
+    mean_hz = pitch_stats.get("mean_hz", 200.0)
+    high_tone_threshold = mean_hz * 1.15  # 15 % above recording mean
+
+    utterances = []
+    for spk_id, chunks in aligned_transcripts.items():
+        role = (roles or {}).get(spk_id, "unknown")
+        for chunk in chunks:
+            text = chunk.get("text", "").strip()
+            if not text:
+                continue
+            start = chunk.get("start", 0.0)
+            end = chunk.get("end", 0.0)
+            avg_hz = avg_pitch_for_window(pitch_stats, start, end)
+            utterances.append(
+                {
+                    "speaker": spk_id,
+                    "role": role,
+                    "start": round(start, 2),
+                    "end": round(end, 2),
+                    "text": text,
+                    "avg_pitch_hz": avg_hz,
+                    "high_tone": avg_hz is not None and avg_hz > high_tone_threshold,
+                }
+            )
+
+    utterances.sort(key=lambda x: x["start"])
+    return utterances
+
+
 def build_json_output(
     transcript: str,
     pitch_stats: dict,
     speaker_segments: list,
     speaker_transcripts: dict,
+    roles: dict = None,
+    conversation: list = None,
 ) -> dict:
     """Build the full analysis result as a serialisable dict.
 
@@ -122,19 +180,24 @@ def build_json_output(
         segs = [s for s in speaker_segments if s["speaker"] == spk_id]
         chunks = speaker_transcripts.get(spk_id, [])
         spk_transcript = " ".join(c["text"] for c in chunks)
+        role = (roles or {}).get(spk_id, "unknown")
         speakers_out.append(
             {
                 "id": spk_id,
+                "role": role,
                 "segments": [{"start": s["start"], "end": s["end"]} for s in segs],
                 "transcript": spk_transcript,
             }
         )
 
-    return {
+    result = {
         "transcript": transcript,
         "pitch": pitch_summary,
         "speakers": speakers_out,
     }
+    if conversation is not None:
+        result["conversation"] = conversation
+    return result
 
 
 def save_text(text: str, path: str) -> None:

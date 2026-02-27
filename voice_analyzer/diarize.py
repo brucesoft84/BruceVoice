@@ -259,6 +259,77 @@ def align_transcript_to_speakers(
     return dict(speaker_transcripts)
 
 
+# ── Role identification keywords (Vietnamese call-center context) ──────────────
+_AGENT_KEYWORDS = [
+    "xin nghe", "tên là", "bên em", "chúng tôi", "dịch vụ",
+    "cảm ơn anh", "cảm ơn chị", "chào anh", "chào chị",
+    "dạ vâng", "vâng ạ", "xin chào", "để xin nghe",
+    "triển khai", "khu vực", "hỗ trợ",
+]
+_CUSTOMER_KEYWORDS = [
+    "cho tôi hỏi", "cho anh hỏi", "cho chị hỏi",
+    "tôi muốn", "tôi cần", "có không", "được không",
+    "làm được không", "như thế nào", "em ơi", "chị ơi",
+]
+
+
+def identify_speaker_roles(
+    speaker_segments: list,
+    speaker_transcripts: dict,
+) -> dict:
+    """Identify which speaker is the call-center agent and which is the customer.
+
+    Uses two complementary heuristics:
+    1. **First speaker = agent** — call-center agents answer the phone, so
+       the speaker whose first segment starts earliest is biased toward agent.
+    2. **Keyword scoring** — agent phrases (greetings, closings, service
+       language) and customer phrases (questions, requests) shift the score.
+
+    Args:
+        speaker_segments: Output of diarize_speakers().
+        speaker_transcripts: Dict mapping speaker_id -> list of chunk dicts
+            (from align_transcript_to_speakers) or plain strings.
+
+    Returns:
+        Dict mapping speaker_id -> "agent" | "customer".
+    """
+    speaker_ids = sorted({s["speaker"] for s in speaker_segments})
+    if not speaker_ids:
+        return {}
+
+    # Heuristic 1: earliest first-segment → likely agent (answered the call)
+    first_start: dict = {}
+    for seg in sorted(speaker_segments, key=lambda x: x["start"]):
+        if seg["speaker"] not in first_start:
+            first_start[seg["speaker"]] = seg["start"]
+    earliest = min(first_start, key=first_start.get)
+
+    # Heuristic 2: keyword score (positive = agent, negative = customer)
+    scores = {spk: 0 for spk in speaker_ids}
+    scores[earliest] += 2  # prior toward earliest = agent
+
+    for spk_id in speaker_ids:
+        chunks = speaker_transcripts.get(spk_id, [])
+        if isinstance(chunks, list):
+            text = " ".join(
+                c["text"] if isinstance(c, dict) else str(c) for c in chunks
+            ).lower()
+        else:
+            text = str(chunks).lower()
+
+        for kw in _AGENT_KEYWORDS:
+            if kw in text:
+                scores[spk_id] += 1
+        for kw in _CUSTOMER_KEYWORDS:
+            if kw in text:
+                scores[spk_id] -= 1
+
+    sorted_spk = sorted(speaker_ids, key=lambda s: scores[s], reverse=True)
+    roles = {spk: ("agent" if i == 0 else "customer") for i, spk in enumerate(sorted_spk)}
+    logger.info("Role identification: %s", roles)
+    return roles
+
+
 def verify_speaker_transcripts(
     audio: np.ndarray,
     sr: int,

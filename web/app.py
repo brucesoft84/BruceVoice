@@ -20,9 +20,14 @@ from fastapi.staticfiles import StaticFiles
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from voice_analyzer.audio import load_audio
-from voice_analyzer.diarize import align_transcript_to_speakers, diarize_speakers, verify_speaker_transcripts
+from voice_analyzer.diarize import (
+    align_transcript_to_speakers,
+    diarize_speakers,
+    identify_speaker_roles,
+    verify_speaker_transcripts,
+)
 from voice_analyzer.enhance import enhance_audio
-from voice_analyzer.output import build_json_output
+from voice_analyzer.output import build_conversation_timeline, build_json_output
 from voice_analyzer.pitch import analyze_pitch, plot_pitch_contour
 from voice_analyzer.transcribe import transcribe, transcribe_with_timestamps
 
@@ -94,7 +99,10 @@ def _run_analysis(job_id: str, file_path: str, options: dict) -> None:
 
         # ── Step 4: Diarization ────────────────────────────────────────────────
         speaker_segments: list = []
-        speaker_transcripts: dict = {}
+        aligned_transcripts: dict = {}   # {spk: [{text,start,end}]} — has timestamps
+        speaker_transcripts: dict = {}   # {spk: [{text,start,end}]} — verified text
+        roles: dict = {}
+        conversation: list = []
 
         if skip_diar:
             _push(q, 4, "skipped", "Diarization skipped", "")
@@ -110,25 +118,32 @@ def _run_analysis(job_id: str, file_path: str, options: dict) -> None:
                     device=device,
                     num_speakers=options.get("num_speakers"),
                 )
-                speaker_transcripts = align_transcript_to_speakers(speaker_segments, timed_chunks)
+                # Aligned transcript keeps precise word-level timestamps
+                aligned_transcripts = align_transcript_to_speakers(speaker_segments, timed_chunks)
                 n = len({s["speaker"] for s in speaker_segments})
                 _push(q, 4, "done", "Diarization complete",
                       f"{n} speaker{'s' if n != 1 else ''} · {len(speaker_segments)} segments")
 
-                # ── Step 5: Verify speaker transcripts ────────────────────────
-                _push(q, 5, "running", "Verifying speaker transcripts…",
+                # ── Step 5: Verify + role identification ──────────────────────
+                _push(q, 5, "running", "Verifying transcripts & identifying roles…",
                       "Re-transcribing each speaker's audio")
                 verified = verify_speaker_transcripts(
                     audio, sr, speaker_segments,
                     model_size=model, device=device,
                 )
-                # Merge verified transcripts back: replace alignment result
-                # for any speaker where verification produced text
+                # Build speaker_transcripts for summary cards (verified text)
                 for spk_id, text in verified.items():
-                    if text:
-                        speaker_transcripts[spk_id] = [{"text": text, "start": 0, "end": 0}]
+                    speaker_transcripts[spk_id] = [{"text": text, "start": 0, "end": 0}] if text else []
+
+                # Identify agent vs customer using aligned (timestamped) data
+                roles = identify_speaker_roles(speaker_segments, aligned_transcripts)
+
+                # Build conversation timeline BEFORE stripping f0 arrays
+                conversation = build_conversation_timeline(aligned_transcripts, pitch_stats, roles)
+
+                role_summary = ", ".join(f"{k}={v}" for k, v in roles.items())
                 _push(q, 5, "done", "Verification complete",
-                      f"{len(verified)} speaker transcript{'s' if len(verified) != 1 else ''} verified")
+                      f"{len(verified)} transcripts verified · {role_summary}")
 
             except Exception as exc:
                 logger.warning("Diarization failed: %s", exc)
@@ -136,9 +151,12 @@ def _run_analysis(job_id: str, file_path: str, options: dict) -> None:
                 _push(q, 5, "skipped", "Verification skipped", "")
 
         # ── Build result ───────────────────────────────────────────────────────
-        result = build_json_output(transcript, pitch_stats, speaker_segments, speaker_transcripts)
+        result = build_json_output(
+            transcript, pitch_stats, speaker_segments, speaker_transcripts,
+            roles=roles, conversation=conversation,
+        )
         result["duration"] = round(duration, 2)
-        # Strip large f0 arrays — the PNG is used for the chart instead
+        # Strip large f0 arrays — PNG is used for chart; window averages already computed
         result["pitch"].pop("f0_times", None)
         result["pitch"].pop("f0_values", None)
 

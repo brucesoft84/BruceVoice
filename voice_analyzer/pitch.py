@@ -1,7 +1,7 @@
 """Voice pitch (F0) analysis using librosa."""
 
 import logging
-from typing import Optional, Tuple
+from typing import Optional
 
 import librosa
 import matplotlib
@@ -111,6 +111,37 @@ def _classify_pitch(mean_hz: float) -> str:
         return "mid"
     else:
         return "low"
+
+
+def avg_pitch_for_window(
+    pitch_stats: dict,
+    start: float,
+    end: float,
+) -> Optional[float]:
+    """Return the mean voiced F0 (Hz) within a time window.
+
+    Used to annotate individual utterances with their average pitch so the UI
+    can flag high-tone turns.
+
+    Args:
+        pitch_stats: Output of analyze_pitch() — must still contain f0_times
+            and f0_values (not yet stripped).
+        start: Window start in seconds.
+        end: Window end in seconds.
+
+    Returns:
+        Mean F0 in Hz rounded to 1 decimal place, or None if no voiced frames
+        exist in the window.
+    """
+    f0_times = pitch_stats.get("f0_times")
+    f0_values = pitch_stats.get("f0_values")
+    if not f0_times or not f0_values:
+        return None
+    voiced = [
+        v for t, v in zip(f0_times, f0_values)
+        if v is not None and start <= t <= end
+    ]
+    return round(float(np.mean(voiced)), 1) if voiced else None
 
 
 def plot_pitch_contour(
