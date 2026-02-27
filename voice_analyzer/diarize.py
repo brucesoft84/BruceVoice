@@ -259,17 +259,34 @@ def align_transcript_to_speakers(
     return dict(speaker_transcripts)
 
 
-# ── Role identification keywords (Vietnamese call-center context) ──────────────
+# ── Role identification keywords (Vietnamese call-center / MEDLATEC context) ───
 _AGENT_KEYWORDS = [
+    # Generic call-center agent phrases
     "xin nghe", "tên là", "bên em", "chúng tôi", "dịch vụ",
     "cảm ơn anh", "cảm ơn chị", "chào anh", "chào chị",
     "dạ vâng", "vâng ạ", "xin chào", "để xin nghe",
     "triển khai", "khu vực", "hỗ trợ",
+    # MEDLATEC brand variants (phonetically transcribed by PhoWhisper)
+    "medlatec", "mê la tét", "may la tét", "me la tec", "mê la tec",
+    # MEDLATEC healthcare agent phrases
+    "kết quả xét nghiệm", "kết quả của anh", "kết quả của chị",
+    "đặt lịch lấy mẫu", "lấy mẫu tại nhà", "cử nhân viên",
+    "nhân viên sẽ đến", "xét nghiệm tại nhà", "gói xét nghiệm",
+    "anh chị cần xét nghiệm", "chị cần xét nghiệm", "anh cần xét nghiệm",
+    "đã ghi nhận", "đã tiếp nhận", "sẽ gọi lại", "bên medlatec",
+    "hệ thống medlatec", "cơ sở medlatec",
 ]
 _CUSTOMER_KEYWORDS = [
+    # Generic customer phrases
     "cho tôi hỏi", "cho anh hỏi", "cho chị hỏi",
     "tôi muốn", "tôi cần", "có không", "được không",
     "làm được không", "như thế nào", "em ơi", "chị ơi",
+    # Healthcare-specific customer phrases
+    "kết quả của tôi", "kết quả của anh", "kết quả ra chưa",
+    "lấy kết quả", "có kết quả chưa", "bao giờ có kết quả",
+    "đặt lịch khám", "đặt lịch xét nghiệm", "lấy mẫu tại nhà",
+    "xét nghiệm gì", "chi phí bao nhiêu", "giá bao nhiêu",
+    "địa chỉ ở đâu", "cơ sở nào gần nhất",
 ]
 
 

@@ -115,6 +115,14 @@
     <!-- ── Results ─────────────────────────────────────────────────────────────── -->
     <div id="results-root" class="hidden space-y-5 fade-in">
 
+      <!-- Call Summary (MEDLATEC) -->
+      <div id="summary-card" class="hidden bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+        <h2 class="font-semibold text-gray-700 mb-4 flex items-center gap-2">
+          <span class="text-indigo-500">📋</span> Call Summary
+        </h2>
+        <div id="summary-content"></div>
+      </div>
+
       <!-- Transcript -->
       <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
         <div class="flex items-center justify-between mb-4">
@@ -369,6 +377,9 @@
       // Conversation timeline
       renderConversation(data.conversation);
 
+      // Call summary (MEDLATEC)
+      renderCallSummary(data.call_summary);
+
       // Diarization summary
       renderDiarization(data.speakers, data.duration);
 
@@ -450,6 +461,100 @@
             </div>
           </div>`;
       }).join('');
+    }
+
+    // ── Call Summary (MEDLATEC) ────────────────────────────────────────────────
+    function renderCallSummary(summary) {
+      const card = document.getElementById('summary-card');
+      const el   = document.getElementById('summary-content');
+
+      if (!summary) { card.classList.add('hidden'); return; }
+      card.classList.remove('hidden');
+
+      const INTENT_LABELS = {
+        ask_test_result:   { icon: '🧪', label: 'Ask Test Result',       color: 'text-purple-700 bg-purple-100' },
+        schedule_home:     { icon: '🏠', label: 'Schedule – At Home',     color: 'text-emerald-700 bg-emerald-100' },
+        schedule_hospital: { icon: '🏥', label: 'Schedule – At Hospital', color: 'text-blue-700 bg-blue-100' },
+        service_inquiry:   { icon: '❓', label: 'Service Inquiry',         color: 'text-amber-700 bg-amber-100' },
+        other:             { icon: '💬', label: 'Other',                   color: 'text-gray-600 bg-gray-100' },
+      };
+
+      const OUTCOME_LABELS = {
+        result_not_ready:             '⏳ Result Not Ready',
+        result_provided:              '✅ Result Provided',
+        result_status_unclear:        '❔ Result Status Unclear',
+        appointment_confirmed_home:   '✅ Appointment Confirmed (Home)',
+        appointment_confirmed_hospital: '✅ Appointment Confirmed (Hospital)',
+        appointment_pending:          '⏳ Appointment Pending',
+        appointment_status_unclear:   '❔ Appointment Status Unclear',
+        inquiry_handled:              '✅ Inquiry Handled',
+        inquiry_status_unclear:       '❔ Inquiry Status Unclear',
+        unknown:                      '❔ Unknown',
+      };
+
+      const intent = INTENT_LABELS[summary.intent] || INTENT_LABELS.other;
+      const outcomeText = OUTCOME_LABELS[summary.outcome_hint] || summary.outcome_hint;
+
+      // Entities block
+      const ents = summary.entities || {};
+      const entityRows = [];
+      if ((ents.phones || []).length)  entityRows.push({ k: '📞 Phone',    v: ents.phones.join(', ') });
+      if ((ents.tests  || []).length)  entityRows.push({ k: '🧬 Tests',    v: ents.tests.join(', ') });
+      if ((ents.times  || []).length)  entityRows.push({ k: '🕐 Time',     v: ents.times.join(', ') });
+      if ((ents.areas  || []).length)  entityRows.push({ k: '📍 Area',     v: ents.areas.join(', ') });
+      if (ents.location_type)          entityRows.push({ k: '📌 Location', v: ents.location_type === 'home' ? '🏠 Home' : '🏥 Hospital' });
+
+      const entityTable = entityRows.length
+        ? `<div class="mt-4 space-y-1.5">
+             ${entityRows.map(r => `
+               <div class="flex gap-3 text-sm">
+                 <span class="text-gray-400 w-24 flex-shrink-0">${r.k}</span>
+                 <span class="text-gray-800 font-medium">${r.v}</span>
+               </div>`).join('')}
+           </div>`
+        : '<p class="text-xs text-gray-400 mt-2">No entities detected.</p>';
+
+      // Stats row
+      const fmtDur = s => { const m = Math.floor(s/60); return m ? `${m}m ${Math.round(s%60)}s` : `${Math.round(s)}s`; };
+      const statsItems = [
+        { label: 'Duration',       val: fmtDur(summary.duration_s) },
+        { label: 'Total Turns',    val: summary.turn_count },
+        { label: 'Agent Turns',    val: summary.agent_turns },
+        { label: 'Customer Turns', val: summary.customer_turns },
+        { label: 'High-Tone',      val: summary.high_tone_turns, accent: summary.high_tone_turns > 0 },
+      ];
+
+      el.innerHTML = `
+        <!-- Intent + Outcome row -->
+        <div class="flex flex-wrap items-start gap-3 mb-4">
+          <div>
+            <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Intent</p>
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${intent.color}">
+              ${intent.icon} ${intent.label}
+            </span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-1">Outcome</p>
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium bg-slate-100 text-slate-700">
+              ${outcomeText}
+            </span>
+          </div>
+        </div>
+
+        <!-- Stats tiles -->
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          ${statsItems.map(s => `
+            <div class="bg-slate-50 rounded-xl p-3 text-center border border-gray-100">
+              <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide">${s.label}</p>
+              <p class="text-sm font-bold mt-1 ${s.accent ? 'text-orange-500' : 'text-gray-700'}">${s.val}</p>
+            </div>`).join('')}
+        </div>
+
+        <!-- Entities -->
+        <div class="mt-4 border-t border-gray-100 pt-4">
+          <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide mb-2">Entities Detected</p>
+          ${entityTable}
+        </div>`;
     }
 
     // ── Speaker summary (diarization card) ────────────────────────────────────

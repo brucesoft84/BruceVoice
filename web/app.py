@@ -27,6 +27,7 @@ from voice_analyzer.diarize import (
     verify_speaker_transcripts,
 )
 from voice_analyzer.enhance import enhance_audio
+from voice_analyzer.medlatec import generate_call_summary
 from voice_analyzer.output import build_conversation_timeline, build_json_output
 from voice_analyzer.pitch import analyze_pitch, plot_pitch_contour
 from voice_analyzer.transcribe import transcribe, transcribe_with_timestamps
@@ -159,6 +160,12 @@ def _run_analysis(job_id: str, file_path: str, options: dict) -> None:
         # Strip large f0 arrays — PNG is used for chart; window averages already computed
         result["pitch"].pop("f0_times", None)
         result["pitch"].pop("f0_values", None)
+
+        # ── MEDLATEC call summary ──────────────────────────────────────────────
+        if conversation:
+            result["call_summary"] = generate_call_summary(
+                conversation, transcript, roles, duration,
+            )
 
         q.put({"type": "done", "results": result})
 
