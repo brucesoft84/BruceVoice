@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+*.whl
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment / secrets
+.env
+*.env
+HF_TOKEN
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Audio uploads (temp files)
+/tmp/voice_analyzer_web/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Results (large binary/json outputs — exclude from repo)
+results/
